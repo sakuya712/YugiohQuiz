@@ -27,12 +27,15 @@
         }
         .correct { background-color: #d4edda; color: #155724; border-color: #c3e6cb; }
         .incorrect { background-color: #f8d7da; color: #721c24; border-color: #f5c6cb; }
+        #current-mode { margin-bottom: 10px; font-weight: bold; }
     </style>
 </head>
 <body>
 
     <div id="quiz-container">
         <h2>このカードの名前は？</h2>
+
+        <p id="current-mode"></p>
         
         <img id="card-image" src="" alt="カードのイラスト" style="max-width: 100%; height: auto;">
         
@@ -51,9 +54,12 @@
         const feedback = document.getElementById('feedback');
         const nextButton = document.getElementById('next-button');
 
-        const NUM_OPTIONS = 6; // 選択肢の数
+        const NUM_OPTIONS = 6;      // 選択肢の総数 (固定)
+        const NUM_WRONG_OPTIONS = 5; // 不正解の選択肢の数 (固定)
+        const MIN_SIMILAR = 3;      // similar_ids から選ぶ最小数
+        const MAX_SIMILAR = 5;      // similar_ids から選ぶ最大数
         
-        let allCardData = {}; 
+        let allCardData = {}; // キーがカードID(文字列)のオブジェクト
         let cardIds = [];     
         let currentCorrectName = ""; // 正解名（常に name_jp）
 
@@ -67,6 +73,13 @@
             }
             return array;
         }
+        
+        /**
+         * ユーティリティ関数: 最小値から最大値までのランダムな整数を生成
+         */
+        function getRandomInt(min, max) {
+            return Math.floor(Math.random() * (max - min + 1)) + min;
+        }
 
         /**
          * 1. ゲームの初期化
@@ -76,8 +89,15 @@
                 const response = await fetch('data/CardMetadata.json');
                 if (!response.ok) throw new Error('CardMetadata.jsonの読み込みに失敗しました。');
                 
-                allCardData = await response.json();
-                cardIds = Object.keys(allCardData); 
+                const cardArray = await response.json(); 
+                
+                // 配列を card_id (文字列)をキーとするオブジェクトに変換
+                allCardData = cardArray.reduce((map, card) => {
+                    map[String(card.card_id)] = card; 
+                    return map;
+                }, {});
+                
+                cardIds = Object.keys(allCardData);
                 
                 if (cardIds.length < NUM_OPTIONS) {
                     feedback.textContent = `クイズには最低${NUM_OPTIONS}枚のカードが必要です。`;
@@ -105,47 +125,126 @@
             nextButton.style.display = 'none';
 
             // 1. 正解カードをランダムに選ぶ
-            const correctCardIdKey = cardIds[Math.floor(Math.random() * cardIds.length)];
+            const correctCardIdKey = cardIds[Math.floor(Math.random() * cardIds.length)]; 
             const correctCardData = allCardData[correctCardIdKey];
-
-            // ★変更点2: name_jp のみを使用するように固定★
             currentCorrectName = correctCardData.name_jp; 
-            
-            // 2. 不正解カードIDの候補を選ぶ (正解IDを除外)
-            let wrongIdKeys = cardIds.filter(id => id !== correctCardIdKey);
 
-            // 3. 不正解カード5枚をランダムに選び、その名前を取得
-            shuffleArray(wrongIdKeys);
-            const wrongOptions = [];
-            
-            for (let i = 0; wrongOptions.length < NUM_OPTIONS - 1 && i < wrongIdKeys.length; i++) {
-                const wrongData = allCardData[wrongIdKeys[i]];
-                
-                // ★変更点3: 不正解の選択肢も name_jp から取得★
-                const wrongName = wrongData.name_jp; 
-                
-                // 重複チェック
-                if (wrongName !== currentCorrectName && !wrongOptions.includes(wrongName)) {
-                    wrongOptions.push(wrongName);
-                }
-            }
-            
-            // 選択肢リストを作成
-            let allOptions = [currentCorrectName, ...wrongOptions];
-            // 選択肢の数が不足する場合に備えてスライス（基本的に不足しないはず）
-            allOptions = allOptions.slice(0, NUM_OPTIONS); 
-
-            shuffleArray(allOptions); // 選択肢をシャッフル
-
-            // 4. 画像と選択肢ボタンを設定
-            
             // 画像の設定
             const cardId = correctCardData.card_id; 
             const currentFileName = `${cardId}.webp`;
             cardImage.src = `images/${currentFileName}`;
             cardImage.alt = 'カードのイラスト';
 
-            // 選択肢ボタンの生成
+            // 選択肢リスト (正解を含む)
+            let allOptions = [currentCorrectName];
+            let usedNames = new Set([currentCorrectName]); // 重複チェック用
+            let wrongOptions = []; // 不正解の選択肢
+
+            // ★変更箇所: 内部でモードを決定する★
+            // const selectionMode = Math.random() < 0.5 ? 'similar' : 'random'; 
+            const selectionMode = 'similar';
+
+
+            if (selectionMode === 'similar') {
+                // =============== Similarモード =================
+
+                // ★変更点1: similar_ids から選ぶ数をランダムに決定 (3, 4, 5)
+                const similarIds = correctCardData.similar_ids || [];
+                const maxPossibleSimilar = Math.min(similarIds.length, NUM_WRONG_OPTIONS);
+                
+                // similar_idsから選ぶ実際数を決定 (min_similarからmax_similarの間、かつ、実際に選べる最大数を超えない)
+                const NUM_SIMILAR_ACTUAL = getRandomInt(MIN_SIMILAR, MAX_SIMILAR);
+                const NUM_SIMILAR_TO_PICK = Math.min(NUM_SIMILAR_ACTUAL, maxPossibleSimilar);
+                
+                // ★変更点2: 残りはランダムカードから選ぶ (5 - NUM_SIMILAR_TO_PICK)
+                const NUM_RANDOM_TO_PICK = NUM_WRONG_OPTIONS - NUM_SIMILAR_TO_PICK;
+
+                
+                // 2-a. similar_ids から NUM_SIMILAR_TO_PICK 個の選択肢を選ぶ
+                let similarOptions = [];
+                const shuffledSimilarIds = shuffleArray([...similarIds]);
+                
+                for (const sId of shuffledSimilarIds) {
+                    const similarData = allCardData[String(sId)]; 
+                    
+                    if (similarData) {
+                        const similarName = similarData.name_jp;
+                        if (!usedNames.has(similarName)) {
+                            similarOptions.push(similarName);
+                            usedNames.add(similarName);
+                        }
+                    }
+                    if (similarOptions.length >= NUM_SIMILAR_TO_PICK) break;
+                }
+                
+                // 2-b. 残りのカードからランダムに NUM_RANDOM_TO_PICK 個の選択肢を選ぶ
+                let randomOptions = [];
+                let remainingIds = cardIds.filter(id => {
+                    const idNum = parseInt(id, 10);
+                    // 自身とsimilar_idsに含まれるIDの両方と一致しないID
+                    return id !== correctCardIdKey && !similarIds.includes(idNum);
+                });
+
+                shuffleArray(remainingIds);
+
+                for (const rId of remainingIds) {
+                    const randomData = allCardData[rId];
+                    if (randomData) {
+                        const randomName = randomData.name_jp;
+                        if (!usedNames.has(randomName)) {
+                            randomOptions.push(randomName);
+                            usedNames.add(randomName);
+                        }
+                    }
+                    if (randomOptions.length >= NUM_RANDOM_TO_PICK) break;
+                }
+                
+                wrongOptions = [...similarOptions, ...randomOptions];
+                
+            } else { 
+                // =============== Randomモード (Random 5) =================
+
+                let randomOptions = [];
+                
+                // 自身を除外した全カードID
+                let remainingIds = cardIds.filter(id => id !== correctCardIdKey); 
+                shuffleArray(remainingIds);
+
+                for (const rId of remainingIds) {
+                    const randomData = allCardData[rId];
+                    if (randomData) {
+                        const randomName = randomData.name_jp;
+                        if (!usedNames.has(randomName)) {
+                            randomOptions.push(randomName);
+                            usedNames.add(randomName);
+                        }
+                    }
+                    if (randomOptions.length >= NUM_WRONG_OPTIONS) break;
+                }
+                
+                wrongOptions = randomOptions;
+            }
+
+            // 4. 全ての選択肢を結合
+            allOptions = [...allOptions, ...wrongOptions];
+            
+            // 選択肢の数がNUM_OPTIONSに満たない場合は、埋め合わせをする (保険)
+            let supplementaryOptions = [];
+            let shuffledCardIds = shuffleArray([...cardIds]);
+            for (const id of shuffledCardIds) {
+                if (allOptions.length >= NUM_OPTIONS) break;
+                const data = allCardData[id];
+                if (data && !usedNames.has(data.name_jp)) {
+                    supplementaryOptions.push(data.name_jp);
+                    usedNames.add(data.name_jp);
+                }
+            }
+            allOptions = [...allOptions, ...supplementaryOptions];
+
+            // 最終的に6つの選択肢をシャッフル
+            allOptions = shuffleArray(allOptions.slice(0, NUM_OPTIONS)); 
+
+            // 5. 選択肢ボタンの生成
             allOptions.forEach(option => {
                 const button = document.createElement('button');
                 button.className = 'option-button';
@@ -157,7 +256,7 @@
         }
 
         /**
-         * 3. 選択肢がクリックされた時の処理
+         * 3. 選択肢がクリックされた時の処理 (変更なし)
          */
         function handleOptionClick(event) {
             // 既に回答済みであれば何もしない
@@ -180,7 +279,7 @@
                 feedback.className = 'correct';
                 clickedButton.classList.add('correct');
             } else {
-                // フィードバックのメッセージも name_jp に固定
+                // フィードバックのメッセージ
                 feedback.textContent = `不正解... 正解は「${currentCorrectName}」でした。`;
                 feedback.className = 'incorrect';
                 clickedButton.classList.add('incorrect');
