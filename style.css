@@ -1,0 +1,74 @@
+/* CSSスタイル */
+body {
+    font-family: sans-serif;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    flex-direction: column;
+    min-height: 100vh;
+    background-color: #f4f4f4;
+}
+
+#quiz-container {
+    background: #fff;
+    border-radius: 8px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+    padding: 24px;
+    text-align: center;
+    width: 90%;
+    max-width: 500px;
+}
+
+#card-image {
+    width: 100%;
+    max-width: 512px; /* カード画像の最大幅 */
+    height: auto;
+    border-radius: 8px;
+    margin-bottom: 16px;
+    border: 1px solid #ddd;
+}
+
+#input-area {
+    margin: 16px 0;
+}
+
+#guess-input {
+    font-size: 16px;
+    padding: 8px;
+    width: 70%;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+}
+
+#submit-button, #next-button {
+    font-size: 16px;
+    padding: 8px 16px;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    background-color: #007bff;
+    color: white;
+    margin-left: 8px;
+}
+
+#next-button {
+    background-color: #28a745;
+    display: none; /* 初期状態では非表示 */
+    margin-top: 10px;
+}
+
+#feedback {
+    font-size: 18px;
+    font-weight: bold;
+    min-height: 1.2em; /* フィードバック表示エリアの高さを確保 */
+    margin-top: 10px;
+}
+
+#feedback.correct {
+    color: green;
+}
+
+#feedback.incorrect {
+    color: red;
+}
+

@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>カード名当てクイズ</title>
+    <link rel="stylesheet" href="style.css"> 
+    <style>
+        /* 簡単なCSSを追加して選択肢を見やすくしています */
+        #options-area {
+            display: grid;
+            grid-template-columns: 1fr 1fr; /* 2列表示 */
+            gap: 10px;
+            margin-top: 20px;
+        }
+        .option-button {
+            padding: 10px;
+            font-size: 16px;
+            cursor: pointer;
+            border: 1px solid #ccc;
+            background-color: #f9f9f9;
+            border-radius: 5px;
+            transition: background-color 0.2s;
+        }
+        .option-button:hover:not(:disabled) {
+            background-color: #e0e0e0;
+        }
+        .correct { background-color: #d4edda; color: #155724; border-color: #c3e6cb; }
+        .incorrect { background-color: #f8d7da; color: #721c24; border-color: #f5c6cb; }
+    </style>
+</head>
+<body>
+
+    <div id="quiz-container">
+        <h2>このカードの名前は？</h2>
+        
+        <img id="card-image" src="" alt="カードのイラスト" style="max-width: 100%; height: auto;">
+        
+        <div id="options-area">
+            </div>
+        
+        <p id="feedback"></p>
+        
+        <button id="next-button" style="display: none;">次の問題へ</button>
+    </div>
+
+    <script>
+        // HTMLの要素を取得
+        const cardImage = document.getElementById('card-image');
+        const optionsArea = document.getElementById('options-area');
+        const feedback = document.getElementById('feedback');
+        const nextButton = document.getElementById('next-button');
+
+        const NUM_OPTIONS = 6; // 選択肢の数
+        
+        let allCardData = {}; 
+        let cardIds = [];     
+        let currentCorrectName = ""; // 正解名（常に name_jp）
+
+        /**
+         * ユーティリティ関数: 配列をシャッフルする (Fisher-Yatesアルゴリズム)
+         */
+        function shuffleArray(array) {
+            for (let i = array.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [array[i], array[j]] = [array[j], array[i]];
+            }
+            return array;
+        }
+
+        /**
+         * 1. ゲームの初期化
+         */
+        async function initializeGame() {
+            try {
+                const response = await fetch('data/CardMetadata.json');
+                if (!response.ok) throw new Error('CardMetadata.jsonの読み込みに失敗しました。');
+                
+                allCardData = await response.json();
+                cardIds = Object.keys(allCardData); 
+                
+                if (cardIds.length < NUM_OPTIONS) {
+                    feedback.textContent = `クイズには最低${NUM_OPTIONS}枚のカードが必要です。`;
+                    feedback.className = 'incorrect';
+                    return;
+                }
+
+                loadNewQuestion();
+
+            } catch (error) {
+                console.error(error);
+                feedback.textContent = 'クイズの読み込みに失敗しました。';
+                feedback.className = 'incorrect';
+            }
+        }
+
+        /**
+         * 2. 新しい問題を読み込む
+         */
+        async function loadNewQuestion() {
+            // UIをリセット
+            feedback.textContent = '';
+            feedback.className = '';
+            optionsArea.innerHTML = ''; // 選択肢をクリア
+            nextButton.style.display = 'none';
+
+            // 1. 正解カードをランダムに選ぶ
+            const correctCardIdKey = cardIds[Math.floor(Math.random() * cardIds.length)];
+            const correctCardData = allCardData[correctCardIdKey];
+
+            // ★変更点2: name_jp のみを使用するように固定★
+            currentCorrectName = correctCardData.name_jp; 
+            
+            // 2. 不正解カードIDの候補を選ぶ (正解IDを除外)
+            let wrongIdKeys = cardIds.filter(id => id !== correctCardIdKey);
+
+            // 3. 不正解カード5枚をランダムに選び、その名前を取得
+            shuffleArray(wrongIdKeys);
+            const wrongOptions = [];
+            
+            for (let i = 0; wrongOptions.length < NUM_OPTIONS - 1 && i < wrongIdKeys.length; i++) {
+                const wrongData = allCardData[wrongIdKeys[i]];
+                
+                // ★変更点3: 不正解の選択肢も name_jp から取得★
+                const wrongName = wrongData.name_jp; 
+                
+                // 重複チェック
+                if (wrongName !== currentCorrectName && !wrongOptions.includes(wrongName)) {
+                    wrongOptions.push(wrongName);
+                }
+            }
+            
+            // 選択肢リストを作成
+            let allOptions = [currentCorrectName, ...wrongOptions];
+            // 選択肢の数が不足する場合に備えてスライス（基本的に不足しないはず）
+            allOptions = allOptions.slice(0, NUM_OPTIONS); 
+
+            shuffleArray(allOptions); // 選択肢をシャッフル
+
+            // 4. 画像と選択肢ボタンを設定
+            
+            // 画像の設定
+            const cardId = correctCardData.card_id; 
+            const currentFileName = `${cardId}.webp`;
+            cardImage.src = `images/${currentFileName}`;
+            cardImage.alt = 'カードのイラスト';
+
+            // 選択肢ボタンの生成
+            allOptions.forEach(option => {
+                const button = document.createElement('button');
+                button.className = 'option-button';
+                button.textContent = option;
+                button.setAttribute('data-name', option);
+                button.addEventListener('click', handleOptionClick);
+                optionsArea.appendChild(button);
+            });
+        }
+
+        /**
+         * 3. 選択肢がクリックされた時の処理
+         */
+        function handleOptionClick(event) {
+            // 既に回答済みであれば何もしない
+            if (nextButton.style.display === 'block') return; 
+
+            const clickedButton = event.target;
+            const userGuess = clickedButton.getAttribute('data-name');
+
+            // 全てのボタンを無効化
+            Array.from(optionsArea.children).forEach(button => {
+                button.disabled = true;
+                // 正解のボタンをハイライト
+                if (button.getAttribute('data-name') === currentCorrectName) {
+                    button.classList.add('correct');
+                }
+            });
+
+            if (userGuess === currentCorrectName) {
+                feedback.textContent = '正解！ 🎉';
+                feedback.className = 'correct';
+                clickedButton.classList.add('correct');
+            } else {
+                // フィードバックのメッセージも name_jp に固定
+                feedback.textContent = `不正解... 正解は「${currentCorrectName}」でした。`;
+                feedback.className = 'incorrect';
+                clickedButton.classList.add('incorrect');
+            }
+
+            // 「次の問題へ」ボタンを表示
+            nextButton.style.display = 'block';
+        }
+
+        // イベントリスナーを設定
+        nextButton.addEventListener('click', loadNewQuestion);
+
+        // ページが読み込まれたらゲームを初期化
+        document.addEventListener('DOMContentLoaded', initializeGame);
+    </script>
+</body>
+</html>
